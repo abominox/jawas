@@ -11,6 +11,7 @@ import time
 import logging
 
 logger = logging.getLogger('main')
+args = ''
 
 def main():
     """Main"""
@@ -30,11 +31,12 @@ def main():
                         "Omit this option to save in the current directory.")
     parser.add_argument('-r', '--resolution',
                         help="Specifies the resolution for downloaded wallpapers, if available. "
-                        "Omit this option to download any found wallpaper, regardless of resolution.")
+                        "Omit this option to download any found wallpaper, "
+                        "regardless of resolution.")
     parser.add_argument('-e', '--exact', action='store_true',
                         help="Only download wallpapers in the exact resolution defined "
                         "by '-r' or '--resolution'.")
-    parser.add_argument('-l', '--limit',
+    parser.add_argument('-l', '--limit', type=int, default=float("inf"),
                         help="Specifies the number of wallpapers to download. "
                         "Omit this option to download all available wallpapers")
     parser.add_argument('-s', '--safety', choices=['sketchy', 'sfw'],
@@ -56,9 +58,10 @@ def main():
     pool = mp.Pool(args.pool)
 
     if not args.directory:
-        args.directory = os.getcwd()
+        os.chdir(str(os.getcwd()))
     else:
-        os.chdir(args.directory)
+        os.chdir(str(args.directory))
+    print(str(os.getcwd()))
 
     if args.verbose:
         logger.setLevel(logging.DEBUG)
@@ -84,7 +87,7 @@ def main():
             search_term += '&resolutions=' + str(args.resolution).lower()
         else:
             search_term += '&atleast=' + str(args.resolution).lower()
-    
+            
     search_term += '&sorting=relevance&order=desc&page=1'
 
     # 2. retrieve paginated preview links for wallpapers
@@ -93,41 +96,44 @@ def main():
     image_links = get_links(search_term, args.limit)
 
     # 3. retrieve direct, src links to wallpaper images
-    src_links = pool.map(grab_src, image_links)
+    #src_links = pool.map(grab_src, image_links)
+    #src_links = list.extend(pool.map(grab_src, image_links))
+    src_links = []
+    for image in image_links:
+        src_links.extend(grab_src(image))
+        #time.sleep(1)
 
-    # 4. download/save wallpaper src links to specified or current dir
+    # 4. download wallpaper src links to specified or current dir
     pool.map(save_image, src_links)
-
-##################################################
-
-def parse_page(page_link):
-    """Get a single page"""
-    page_request = requests.get(page_link, headers = {'User-Agent': 'Mozilla/5.0'})
-    soup = BeautifulSoup(page_request.text, features="html.parser")
-    return soup
+    #for image_links in src_links:
+        #save_image(image_links)
 
 ##################################################
 
 def get_links(search_term, limit):
-    """Get requested wallpaper links, based on constructed link"""
+    """Get requested wallpaper links, based on constructed search term"""
     links = []
-    counter = 1
+    image_count = 0
+    page_count = 1
     page_request = requests.get(search_term, headers = {'User-Agent': 'Mozilla/5.0'})
     soup = BeautifulSoup(page_request.text, features="html.parser")
     preview_links = soup.findAll("a", { "class": "preview" } )
+    #image_count = preview_links.len()
 
     if not preview_links:
         print("No wallpapers found for the specified search/options, exiting...")
         exit(0)
 
-    # while list of links not empty (meaning we have more wallpapers to get)
-    while preview_links:
+    # while list of preview links not empty (meaning we have more wallpapers to get)
+    # and we've not exceeded the link retrieval limit (if applicable)
+    while preview_links and image_count <= limit:
         for image in preview_links:
             links.append(image.get('href'))
-        counter+=1
-        search_term = search_term.split('page=', 1)[0] + 'page=' + str(counter)
+            image_count+=1
+        page_count+=1
+        search_term = search_term.split('page=')[0] + 'page=' + str(page_count)
         print("Parsing " + search_term)
-        logger.debug('Parsing ' + search_term)
+        #logger.debug('Parsing ' + search_term)
         page_request = requests.get(search_term, headers = {'User-Agent': 'Mozilla/5.0'})
         soup = BeautifulSoup(page_request.text, features="html.parser")
         preview_links = soup.findAll("a", { "class": "preview" } )
@@ -139,21 +145,34 @@ def get_links(search_term, limit):
 
 ##################################################
 
-def grab_src(image_link):
-    """Assemble direct image links from preview paginations"""
+def grab_src(preview_link):
+    """Assemble direct image links from preview links"""
     src_links = []
+    request = requests.get(preview_link)
 
-    soup = BeautifulSoup(requests.get(image_link).text, features="html.parser")
+    # keep requesting in event of 429 response (this is not nice)
+    while request.status_code == 429:
+        request = requests.get(preview_link)
+    soup = BeautifulSoup(request.text, features="html.parser")
     for preview_link in soup.findAll(id='wallpaper'):
-        print(preview_link.get('src'))
         src_links.append(preview_link.get('src'))
+        print('Added: ' + src_links[-1])
     return src_links
 
 ##################################################
 
-def save_image(save_dir):
-    """Write images to specified directory"""
+def save_image(image_link):
+    """Write images to local filesystem"""
+    #logger.debug('Saving file:')
+    filename = str(image_link).split('-')[-1]
+    print (str(os.getcwd()))
+    print('Saving ' + filename + ' -----> ' + str(os.getcwd()) + '/' + filename)
+    open(filename, 'wb').write(requests.get(image_link).content)
 
 ##################################################
 
-main()
+try:
+    main()
+except KeyboardInterrupt:
+    print("Exiting due to user request...")
+    exit(0)
