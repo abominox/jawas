@@ -11,7 +11,6 @@ import time
 import logging
 
 logger = logging.getLogger('main')
-args = ''
 
 def main():
     """Main"""
@@ -57,11 +56,15 @@ def main():
     # init multiprocessor based on passed CPU cores
     pool = mp.Pool(args.pool)
 
+    #global save_dir
     if not args.directory:
-        os.chdir(str(os.getcwd()))
+        #save_dir = str(os.getcwd())
+        print('TEST')
     else:
-        os.chdir(str(args.directory))
-    print(str(os.getcwd()))
+        save_dir = str(args.directory)
+        os.chdir(os.path.abspath(args.directory))
+    #print(str(os.getcwd()))
+    #print(save_dir)
 
     if args.verbose:
         logger.setLevel(logging.DEBUG)
@@ -104,9 +107,9 @@ def main():
         #time.sleep(1)
 
     # 4. download wallpaper src links to specified or current dir
-    pool.map(save_image, src_links)
-    #for image_links in src_links:
-        #save_image(image_links)
+    #pool.map(save_image, src_links)
+    for image_links in src_links:
+        save_image(image_links)
 
 ##################################################
 
@@ -118,7 +121,6 @@ def get_links(search_term, limit):
     page_request = requests.get(search_term, headers = {'User-Agent': 'Mozilla/5.0'})
     soup = BeautifulSoup(page_request.text, features="html.parser")
     preview_links = soup.findAll("a", { "class": "preview" } )
-    #image_count = preview_links.len()
 
     if not preview_links:
         print("No wallpapers found for the specified search/options, exiting...")
@@ -152,6 +154,7 @@ def grab_src(preview_link):
 
     # keep requesting in event of 429 response (this is not nice)
     while request.status_code == 429:
+        time.sleep(1)
         request = requests.get(preview_link)
     soup = BeautifulSoup(request.text, features="html.parser")
     for preview_link in soup.findAll(id='wallpaper'):
@@ -165,8 +168,11 @@ def save_image(image_link):
     """Write images to local filesystem"""
     #logger.debug('Saving file:')
     filename = str(image_link).split('-')[-1]
-    print (str(os.getcwd()))
-    print('Saving ' + filename + ' -----> ' + str(os.getcwd()) + '/' + filename)
+    #print (str(os.getcwd()))
+    #print(save_dir)
+    #os.chdir(save_dir)
+    print('Saving ' + filename + ' -----> ' + os.getcwd() + '/' + filename)
+    # split this out later and add 429 logic
     open(filename, 'wb').write(requests.get(image_link).content)
 
 ##################################################
